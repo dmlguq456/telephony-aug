@@ -8,13 +8,13 @@
 
 sample_rate: 48000
 
-# Stage 0 — Strong noise injection (저 SNR 5-10dB) 으로 noisy-input 분포 생성
-# → 이후 stage 들의 NS / codec 이 "noise 깎으면서 음성도 깎는" artifact 생산
+# Stage 0 — Very strong noise injection (SNR -3 ~ 3 dB → 잡음이 음성과 비슷하거나
+# 더 큰 분포). NS 가 강제로 잡음을 깎아내야 하는 상황 → 음성도 같이 over-suppress.
 noise_inject:
   prob: 1.0
   noise_dir: null                # synthetic 만 사용 (caller 가 noise_dir 주면 real noise)
   noise_type: [pink, brown]      # speech-band 위주의 자연스러운 노이즈 (white 보단 perceptual)
-  snr_range: [5, 12]             # 낮은 SNR → 강한 noise (noisy env 모사)
+  snr_range: [-3, 3]             # 매우 낮은 SNR — 잡음 음성과 동급 또는 우세
   dual_noise: false
 
 # Stage A — RIR: 핸드셋 near-field 라 거의 없음 (handset dirac short-circuit)
@@ -27,10 +27,12 @@ rir:
     handset: 1.0                 # dirac identity (no reverb)
   wet_ratio_range: [0.1, 0.2]
 
-# Stage B — Pre-codec WebRTC APM (NS High + AGC)
+# Stage B — Pre-codec WebRTC APM NS High (level 3 = WebRTC APM max).
+# Multi-pass NS achieved via far_end_dsp stage activating WebRTC NS again
+# after codec → "double NS" cascade artifact (전형적 핸드폰 분포).
 near_end_dsp:
   prob: 1.0
-  noise_suppression_range: [3, 3]
+  noise_suppression_range: [3, 3]   # WebRTC APM max = 3 (VeryHigh)
   auto_gain_range: [0, 3]
 
 # Stage C — Codec (force VoIP Opus 12 kbps — low bitrate for audible artifacts)
