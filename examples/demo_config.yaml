@@ -14,7 +14,7 @@ noise_inject:
   prob: 1.0
   noise_dir: null                # synthetic 만 사용 (caller 가 noise_dir 주면 real noise)
   noise_type: [pink, brown]      # speech-band 위주의 자연스러운 노이즈 (white 보단 perceptual)
-  snr_range: [-10, -5]           # 잡음 >> 음성 (5-10 dB 큼). NS 가 더 펌프 → 음성 잘림 강화
+  snr_range: [0, 5]              # 자연스러운 카페/지하철 환경 (잡음 ≈ 음성). NS over-suppress 일부, 음성은 들림
   dual_noise: false
 
 # Stage A — RIR: 핸드셋 near-field 라 거의 없음 (handset dirac short-circuit)
