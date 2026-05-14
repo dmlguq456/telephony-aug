@@ -12,9 +12,9 @@ sample_rate: 48000
 # 더 큰 분포). NS 가 강제로 잡음을 깎아내야 하는 상황 → 음성도 같이 over-suppress.
 noise_inject:
   prob: 1.0
-  noise_dir: null                # synthetic 만 사용 (caller 가 noise_dir 주면 real noise)
-  noise_type: [pink, brown]      # speech-band 위주의 자연스러운 노이즈 (white 보단 perceptual)
-  snr_range: [5, 12]             # 카페/실내 정상 통화 SNR. 음성이 잡음보다 5-12 dB 큼
+  noise_dir: examples/cafe_noise   # 합성 카페 babble (multi-talker + 저역 rumble)
+  noise_type: [pink]               # noise_dir 없을 때만 fallback
+  snr_range: [0, 0]                # SNR 0 dB — 음성과 잡음 동일 레벨 (전형적 카페 통화)
   dual_noise: false
 
 # Stage A — RIR: 핸드셋 near-field 라 거의 없음 (handset dirac short-circuit)
