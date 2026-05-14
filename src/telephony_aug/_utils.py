@@ -20,6 +20,7 @@ import functools
 import logging
 import os
 import shutil
+import subprocess
 
 import numpy as np
 
@@ -41,6 +42,32 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Utility functions
 # ---------------------------------------------------------------------------
+
+
+def _parse_ffmpeg_encoders() -> list:
+    """``ffmpeg -encoders`` 출력을 파싱해 인코더 이름 목록을 반환한다.
+
+    ffmpeg 미설치 또는 timeout 시 빈 list 반환 (예외 raise 안 함).
+    """
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-encoders", "-v", "quiet"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        encoders = []
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            # 인코더 목록 행 형식: " V..... libmp3lame ..."
+            if len(line) > 7 and line[0] in "VASD" and line[1] == ".":
+                parts = line.split()
+                if len(parts) >= 2 and parts[1] != "=":
+                    encoders.append(parts[1])
+        return encoders
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+        logger.warning("telephony_aug: ffmpeg 인코더 목록 파싱 실패: %s", exc)
+        return []
 
 
 @functools.lru_cache(maxsize=1)

@@ -74,6 +74,7 @@ from ._utils import (
     _ensure_range,
     _peak_normalize,
     _validate_audio,
+    _parse_ffmpeg_encoders,
 )
 
 # ---------------------------------------------------------------------------
@@ -686,8 +687,7 @@ def codec_roundtrip(
             # Verify encoder availability (skip if AMR, G.711, G.722 — built-in)
             _builtin_encoders = {"pcm_mulaw", "pcm_alaw", "g722"}
             if encoder not in _builtin_encoders:
-                from audio_augmentation import AudioAugmentor as _AA
-                available = _AA._parse_ffmpeg_encoders()
+                available = _parse_ffmpeg_encoders()
                 if encoder not in available:
                     raise RuntimeError(
                         f"ffmpeg encoder '{encoder}' not available (not in ffmpeg -encoders)"
