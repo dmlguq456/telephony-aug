@@ -13,6 +13,7 @@ dist/
 !examples/sample_telephony_cpu.wav
 !examples/sample_telephony_user_rir.wav
 !examples/abl_*.wav
+!examples/cafe_noise/*.wav
 
 # IDE / OS
 .DS_Store
