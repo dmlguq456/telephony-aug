@@ -14,7 +14,7 @@ noise_inject:
   prob: 1.0
   noise_dir: null                # synthetic 만 사용 (caller 가 noise_dir 주면 real noise)
   noise_type: [pink, brown]      # speech-band 위주의 자연스러운 노이즈 (white 보단 perceptual)
-  snr_range: [0, 5]              # 자연스러운 카페/지하철 환경 (잡음 ≈ 음성). NS over-suppress 일부, 음성은 들림
+  snr_range: [5, 12]             # 카페/실내 정상 통화 SNR. 음성이 잡음보다 5-12 dB 큼
   dual_noise: false
 
 # Stage A — RIR: 핸드셋 near-field 라 거의 없음 (handset dirac short-circuit)
@@ -27,13 +27,12 @@ rir:
     handset: 1.0                 # dirac identity (no reverb)
   wet_ratio_range: [0.1, 0.2]
 
-# Stage B — Pre-codec WebRTC APM NS High (level 3 = WebRTC APM max).
-# Multi-pass NS achieved via far_end_dsp stage activating WebRTC NS again
-# after codec → "double NS" cascade artifact (전형적 핸드폰 분포).
+# Stage B — Pre-codec WebRTC APM (송신단 NS + AGC, 실제 핸드셋 단일 패스)
+# NS: VeryHigh (3) — 핸드셋 표준. AGC target -3 ~ -9 dBOv (일반 통화 음량).
 near_end_dsp:
   prob: 1.0
-  noise_suppression_range: [3, 3]   # WebRTC APM max = 3 (VeryHigh)
-  auto_gain_range: [0, 3]
+  noise_suppression_range: [3, 3]
+  auto_gain_range: [3, 9]            # target dBOv (낮을수록 시끄러움 — 3=loud, 9=quiet)
 
 # Stage C — Codec (force VoIP Opus 12 kbps — low bitrate for audible artifacts)
 codec:
@@ -48,7 +47,7 @@ codec:
     Cellular:
       - {format: amr, encoder: libopencore_amrnb, sr: 8000, bitrate_modes_kbps: [4.75]}
     VoIP:
-      - {format: opus, encoder: libopus, sr: 48000, bitrate_range_kbps: [12, 16]}
+      - {format: opus, encoder: libopus, sr: 48000, bitrate_range_kbps: [20, 28]}
 
 # Stage D+E — Packet loss: 핸드셋 도메인엔 잘 안 들림 (드물게만)
 packet_loss_plc:
@@ -58,10 +57,10 @@ packet_loss_plc:
   p_bad_to_good_range: [0.5, 0.8]
   plc_weights: [0.7, 0.3]
 
-# Stage F — Post-codec WebRTC APM cascade
+# Stage F — Post-codec NS: 끔. 실제 통화는 NS 1번 (near_end 만). double-NS 는 비현실적.
 far_end_dsp:
-  prob: 1.0
-  backend_weights: [1.0, 0.0, 0.0]   # webrtc / rnnoise / none
+  prob: 0.0
+  backend_weights: [1.0, 0.0, 0.0]
 
 # Stage G — Force NB (8 kHz) — heaviest perceptual change
 bandwidth_switch:
@@ -69,12 +68,12 @@ bandwidth_switch:
   target_modes: [NB]
   target_weights: [1.0]
 
-# Stage I — Mic capture: aggressive clipping + gain
+# Stage I — Mic capture: 약한 clip + gain (정상 핸드폰 mic 범위)
 mic_capture_cpu:
-  prob: 1.0
-  clip_prob: 1.0
-  clip_threshold_range: [0.7, 0.85]
-  gain_prob: 1.0
+  prob: 0.5
+  clip_prob: 0.2
+  clip_threshold_range: [0.85, 0.95]
+  gain_prob: 0.5
   gain_db_range: [-3, 3]
 
 final_normalize:
