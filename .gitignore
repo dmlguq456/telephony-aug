@@ -7,9 +7,11 @@ dist/
 .pytest_cache/
 .tox/
 
-# Audio outputs (large binaries; keep example sample.wav only)
+# Audio outputs (large binaries; keep sample.wav + demo outputs for README/Notion embed)
 *.wav
 !examples/sample.wav
+!examples/sample_telephony_cpu.wav
+!examples/sample_telephony_user_rir.wav
 
 # IDE / OS
 .DS_Store
