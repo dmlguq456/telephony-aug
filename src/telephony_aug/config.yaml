@@ -28,6 +28,20 @@
 sample_rate: 48000
 
 # ---------------------------------------------------------------------------
+# Stage 0 (CPU): noise_inject — additive noise BEFORE all other stages
+# ---------------------------------------------------------------------------
+# Mixes background noise into clean speech to create a noisy-input distribution.
+# Downstream NS (near_end_dsp / far_end_dsp) then over-suppresses the noise +
+# part of the speech, producing the perceptually dominant telephony distortion
+# (음성이 깎이는 케이스). noise_dir 가 None 이면 synthetic white/pink/brown 노이즈.
+noise_inject:
+  prob: 0.7
+  noise_dir: null                # path to dir of noise .wav/.flac files (null = synthetic only)
+  noise_type: [white, pink, brown]  # synthetic colored-noise types to sample from
+  snr_range: [5, 25]             # SNR (dB) — lower = noisier
+  dual_noise: false              # true → real-file noise + synthetic noise both applied
+
+# ---------------------------------------------------------------------------
 # Stage A (CPU): rir — Room Impulse Response convolution
 # ---------------------------------------------------------------------------
 # RIRSampler supports: manifest JSON, rir_dir file scan, or synthetic ISM fallback.

@@ -200,6 +200,47 @@ def test_apply_rir_with_manifest(sine_1s):
 
 
 # ---------------------------------------------------------------------------
+# noise_inject
+# ---------------------------------------------------------------------------
+
+def test_noise_inject_synthetic_changes_signal(sine_1s):
+    """noise_inject (synthetic) adds energy → output differs from input + RMS increases."""
+    from telephony_aug import TelephonyAugmentation
+    aug = TelephonyAugmentation({
+        "noise_inject": {"prob": 1.0, "noise_dir": None, "snr_range": [5, 5], "noise_type": ["white"]},
+        "final_normalize": {"enabled": False},
+    })
+    out = aug(sine_1s.copy(), SR)
+    assert out.shape == sine_1s.shape
+    assert np.any(out != sine_1s), "noise_inject must alter the signal"
+    # At SNR 5 dB, noise RMS is roughly half of signal RMS → combined RMS should rise
+    in_rms = float(np.sqrt(np.mean(sine_1s**2)))
+    out_rms = float(np.sqrt(np.mean(out**2)))
+    assert out_rms > in_rms * 1.05, f"Expected RMS increase from noise; got in={in_rms:.4f} out={out_rms:.4f}"
+
+
+def test_noise_inject_high_snr_minimal_change(sine_1s):
+    """Very high SNR (40 dB) → noise inaudible, output ≈ input (RMS diff small)."""
+    from telephony_aug import TelephonyAugmentation
+    aug = TelephonyAugmentation({
+        "noise_inject": {"prob": 1.0, "noise_dir": None, "snr_range": [40, 40], "noise_type": ["white"]},
+        "final_normalize": {"enabled": False},
+    })
+    out = aug(sine_1s.copy(), SR)
+    diff_rms = float(np.sqrt(np.mean((out - sine_1s) ** 2)))
+    in_rms = float(np.sqrt(np.mean(sine_1s**2)))
+    # At SNR 40 dB, noise RMS is ~1/100 of signal → diff RMS should be small
+    assert diff_rms < in_rms * 0.05, f"At SNR 40 dB diff should be tiny; got diff={diff_rms:.4f} in={in_rms:.4f}"
+
+
+def test_noise_inject_in_pipeline_order():
+    """noise_inject must be the FIRST stage in CPU_PIPELINE_ORDER (before rir)."""
+    from telephony_aug import TelephonyAugmentation
+    aug = TelephonyAugmentation({})
+    assert aug.CPU_PIPELINE_ORDER[0] == "noise_inject"
+
+
+# ---------------------------------------------------------------------------
 # Codec
 # ---------------------------------------------------------------------------
 

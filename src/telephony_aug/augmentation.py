@@ -1195,13 +1195,16 @@ class TelephonyAugmentation:
 
     ALLOWED_CONFIG_KEYS = frozenset({
         # Pipeline stages
-        "rir", "near_end_dsp", "codec", "packet_loss_plc",
+        "noise_inject", "rir", "near_end_dsp", "codec", "packet_loss_plc",
         "far_end_dsp", "bandwidth_switch", "mic_capture_cpu",
         # Global
         "sample_rate", "final_normalize", "distortion_logging",
     })
 
     CPU_PIPELINE_ORDER = [
+        "noise_inject",       # Stage 0 — additive noise (SNR sampling) BEFORE other stages
+                              #            so downstream NS sees noisy input → over-suppression
+                              #            artifact (the perceptually dominant telephony distortion).
         "rir",                # Stage A — room impulse response convolution
         "near_end_dsp",       # Stage B — optional WebRTC APM pre-codec
         "codec",              # Stage C — hierarchical codec sampler
@@ -1562,6 +1565,94 @@ class TelephonyAugmentation:
     # Each stage method receives (self, audio: np.ndarray, sr: int, cfg_stage: dict) -> np.ndarray
     # Stage count is authoritative in CPU_PIPELINE_ORDER — do not hard-code here.
     # -----------------------------------------------------------------------
+
+    def _apply_noise_inject(
+        self, audio: np.ndarray, sr: int, cfg_stage: Dict[str, Any]
+    ) -> np.ndarray:
+        """Additive noise (Stage 0) — caller speech 에 잡음 합성하여 noisy input
+        분포 생성. 이후 stage 의 NS / codec 이 noisy speech 에서 음성을 over-suppress
+        하는 telephony-typical artifact 를 재현하는 데 결정적.
+
+        Config keys (모두 선택):
+          noise_dir:    str | None    # noise wav/flac 디렉토리 (재귀 X — 1 level)
+          noise_type:   list[str] | str  # synthetic 노이즈 fallback: white/pink/brown
+          snr_range:    list[float, float]   # SNR (dB), default [5, 25]
+          dual_noise:   bool          # True 면 real (noise_dir) + synthetic 동시
+        """
+        if len(audio) == 0:
+            return audio
+
+        snr_range = _ensure_range(cfg_stage.get("snr_range", [5, 25]), [5, 25])
+        noise_types = cfg_stage.get("noise_type", ["white", "pink", "brown"])
+        if isinstance(noise_types, str):
+            noise_types = [noise_types]
+        if not noise_types:
+            noise_types = ["white"]
+
+        noise_dir = cfg_stage.get("noise_dir")
+        dual_noise = bool(cfg_stage.get("dual_noise", False)) and bool(noise_dir)
+
+        audio_rms = _rms(audio)
+        audio_out = audio.astype(np.float64)
+
+        def _scale(noise_arr: np.ndarray, snr_db: float) -> np.ndarray:
+            return noise_arr * audio_rms / (10 ** (snr_db / 20.0)) / (_rms(noise_arr) + 1e-8)
+
+        def _load_random_noise_file() -> np.ndarray:
+            """Pick a random noise file from noise_dir, load + sr-match + length-match.
+
+            Uses soundfile (no librosa numba dependency). sr mismatch handled
+            via the module-level _taF.resample (or scipy fallback) inline.
+            """
+            from pathlib import Path as _P
+            d = _P(noise_dir)
+            cands = list(d.glob("*.wav")) + list(d.glob("*.flac"))
+            if not cands:
+                return None
+            path = random.choice(cands)
+            try:
+                noise_raw, n_sr = sf.read(str(path), dtype="float32")
+                if noise_raw.ndim == 2:
+                    noise_raw = noise_raw.mean(axis=1)
+                # SR match (inline pattern — same as elsewhere in module)
+                if int(n_sr) != int(sr):
+                    if _taF is not None:
+                        t = _torch.from_numpy(np.ascontiguousarray(noise_raw, dtype=np.float32))
+                        noise_raw = _taF.resample(t, int(n_sr), int(sr)).numpy()
+                    else:
+                        g = _gcd(int(n_sr), int(sr))
+                        noise_raw = signal.resample_poly(noise_raw, int(sr) // g, int(n_sr) // g).astype(np.float32)
+                # Length match — tile or trim
+                if len(noise_raw) == 0:
+                    return None
+                if len(noise_raw) >= len(audio):
+                    # Random start offset for variety
+                    start = random.randint(0, len(noise_raw) - len(audio))
+                    noise_raw = noise_raw[start : start + len(audio)]
+                else:
+                    repeats = int(np.ceil(len(audio) / len(noise_raw)))
+                    noise_raw = np.tile(noise_raw, repeats)[: len(audio)]
+                return noise_raw.astype(np.float64)
+            except Exception as exc:
+                logger.warning("_apply_noise_inject: 노이즈 파일 load 실패 (%s): %s", path, exc)
+                return None
+
+        # Path A: real-noise file
+        if noise_dir:
+            real_noise = _load_random_noise_file()
+            if real_noise is not None:
+                snr = random.uniform(*snr_range)
+                audio_out = audio_out + _scale(real_noise, snr)
+
+        # Path B: synthetic colored noise
+        if (not noise_dir) or dual_noise:
+            snr = random.uniform(*snr_range)
+            ntype = random.choice(noise_types) if isinstance(noise_types, list) else noise_types
+            synth = _generate_colored_noise(len(audio), ntype).astype(np.float64)
+            audio_out = audio_out + _scale(synth, snr)
+
+        audio_out = np.clip(audio_out, -1.0, 1.0)
+        return audio_out.astype(np.float32)
 
     def _apply_rir(
         self, audio: np.ndarray, sr: int, cfg_stage: Dict[str, Any]
