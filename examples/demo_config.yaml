@@ -1,0 +1,70 @@
+# =============================================================================
+# Demo Config — strong distortion for sanity-check / audible verification.
+# NOT for training — training uses src/telephony_aug/config.yaml (probabilistic).
+# =============================================================================
+# Every stage forced to prob=1.0 so listeners can hear what each stage does.
+# Use this when you want to *verify* the augmentation chain works perceptually.
+
+sample_rate: 48000
+
+# Stage A — RIR (meeting room only; clear reverb)
+rir:
+  prob: 1.0
+  manifest_path: null
+  rir_dir: null
+  room_type_split:
+    meeting: 1.0
+    handset: 0.0
+  wet_ratio_range: [0.5, 0.7]
+
+# Stage B — Pre-codec WebRTC APM (NS High + AGC)
+near_end_dsp:
+  prob: 1.0
+  noise_suppression_range: [3, 3]
+  auto_gain_range: [0, 3]
+
+# Stage C — Codec (force VoIP Opus 12 kbps — low bitrate for audible artifacts)
+codec:
+  prob: 1.0
+  category_probs:
+    PSTN: 0.0
+    Cellular: 0.0
+    VoIP: 1.0
+  codec_tree:
+    PSTN:
+      - {format: wav, encoder: pcm_mulaw, sr: 8000}
+    Cellular:
+      - {format: amr, encoder: libopencore_amrnb, sr: 8000, bitrate_modes_kbps: [4.75]}
+    VoIP:
+      - {format: opus, encoder: libopus, sr: 48000, bitrate_range_kbps: [12, 16]}
+
+# Stage D+E — Packet loss 8-12% with PLC fill
+packet_loss_plc:
+  prob: 1.0
+  frame_size_ms: 20
+  p_good_to_bad_range: [0.08, 0.12]
+  p_bad_to_good_range: [0.3, 0.5]
+  plc_weights: [0.7, 0.3]
+
+# Stage F — Post-codec WebRTC APM cascade
+far_end_dsp:
+  prob: 1.0
+  backend_weights: [1.0, 0.0, 0.0]   # webrtc / rnnoise / none
+
+# Stage G — Force NB (8 kHz) — heaviest perceptual change
+bandwidth_switch:
+  prob: 1.0
+  target_modes: [NB]
+  target_weights: [1.0]
+
+# Stage I — Mic capture: aggressive clipping + gain
+mic_capture_cpu:
+  prob: 1.0
+  clip_prob: 1.0
+  clip_threshold_range: [0.7, 0.85]
+  gain_prob: 1.0
+  gain_db_range: [-3, 3]
+
+final_normalize:
+  enabled: true
+  target_peak: 0.95

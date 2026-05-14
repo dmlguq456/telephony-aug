@@ -36,16 +36,24 @@ from telephony_aug import TelephonyAugmentation
 def main() -> None:
     pipeline_dir = Path(__file__).parent
     sample_path = pipeline_dir / "sample.wav"
-    # Default config ships inside the installed package
-    config_path = Path(__file__).parent.parent / "src" / "telephony_aug" / "config.yaml"
+    # Demo uses examples/demo_config.yaml (every stage prob=1.0, force NB +
+    # low-bitrate Opus) so the output WAV is *audibly* distorted vs input.
+    # The package's standard config (src/telephony_aug/config.yaml) is the
+    # probabilistic training config (~3-4 stages fire per sample on average)
+    # and is intentionally subtle — fine for training but hard to verify by
+    # listening to a single sample. Swap config_path below if you want to
+    # hear the training distribution instead.
+    config_path = pipeline_dir / "demo_config.yaml"
     if not config_path.exists():
-        # Installed mode — locate via importlib.resources
-        try:
-            from importlib import resources as _res
-            with _res.as_file(_res.files("telephony_aug").joinpath("config.yaml")) as p:
-                config_path = Path(str(p))
-        except Exception:
-            pass
+        # Fallback: package-shipped training config
+        config_path = Path(__file__).parent.parent / "src" / "telephony_aug" / "config.yaml"
+        if not config_path.exists():
+            try:
+                from importlib import resources as _res
+                with _res.as_file(_res.files("telephony_aug").joinpath("config.yaml")) as p:
+                    config_path = Path(str(p))
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------
     # 0) Guard: 필수 파일 존재 확인
