@@ -1,0 +1,24 @@
+# Optional dependencies — install per stage backend you want active.
+# All stages are guarded by try/except ImportError; missing libs disable that
+# stage's primary backend (with graceful fallback to alternative paths).
+
+# Codec direct bindings (otherwise torchaudio.io.AudioEffector ffmpeg backend is used)
+opuslib>=3.0       # Opus direct binding (BSD)
+g711>=1.0          # PSTN PCM mu/A-law pure-Python (MIT)
+g722>=0.1          # libg722 ctypes wrapper (Sippy, LGPL-2.1 dynamic-link only)
+
+# Device DSP
+pyrnnoise>=0.2     # RNNoise NS Python wrapper (BSD)
+webrtc-noise-gain>=2.0   # WebRTC APM (BSD)
+
+# RIR
+pyroomacoustics>=0.7   # ISM-based RIR fallback (MIT)
+
+# Augmentation Compose pattern (mic_capture_cpu primary path)
+audiomentations>=0.35   # MIT
+
+# Evaluation (PESQ — for quality metrics tests)
+pesq
+
+# Dev / test tooling
+pytest>=7.0

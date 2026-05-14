@@ -1,0 +1,163 @@
+# =============================================================================
+# Telephony Augmentation Pipeline Configuration
+# telephony_augmentation.py (TelephonyAugmentation) 전용 설정 파일
+# =============================================================================
+# Schema mirrors augmentation_config.yaml style but uses telephony stage names
+# matching TelephonyAugmentation.CPU_PIPELINE_ORDER.
+#
+# Pipeline order (fixed in code — do NOT reorder here):
+# CPU: rir → near_end_dsp → codec → packet_loss_plc
+#      → far_end_dsp → bandwidth_switch → mic_capture_cpu
+# Note: multi-speaker mixing handled by upstream Dataset layer.
+# Always applied: final_normalize
+#
+# Set prob: 0.0 to disable any stage.
+#
+# ---------------------------------------------------------------------------
+# DEFERRED ITEMS (not implemented in current cycle — future work)
+# ---------------------------------------------------------------------------
+# - Handset IR (핸드셋 임펄스 응답): room_type='handset' currently returns a
+#   dirac-IR (identity convolution). Device-specific frequency shaping deferred.
+# - EVS (Enhanced Voice Services / 3GPP): license not yet secured.
+# - Multi-channel / spatial audio: multi-channel RIR synthesis, binaural rendering.
+# - Jitter buffer reorder: packet reordering (jitter) before PLC is deferred;
+#   current packet_loss_plc stage applies loss-only without reorder.
+# ---------------------------------------------------------------------------
+
+# Base sample rate of input audio (Hz)
+sample_rate: 48000
+
+# ---------------------------------------------------------------------------
+# Stage A (CPU): rir — Room Impulse Response convolution
+# ---------------------------------------------------------------------------
+# RIRSampler supports: manifest JSON, rir_dir file scan, or synthetic ISM fallback.
+# room_type_split controls meeting vs. handset routing.
+# NOTE: room_type='handset' returns dirac-IR (identity) — device IR deferred (see above).
+rir:
+  prob: 0.6
+  manifest_path: null     # path to RIR manifest JSON (null = no manifest)
+  rir_dir: null           # path to directory of RIR .wav files (null = synthetic ISM)
+  room_type_split:
+    meeting: 0.85         # 85% of samples routed through synthetic meeting-room ISM
+    handset: 0.15         # 15% routed to handset path (dirac-IR identity — deferred)
+  wet_ratio_range: [0.3, 0.8]   # dry/wet mix ratio for convolved signal
+
+# ---------------------------------------------------------------------------
+# Stage B (CPU): near_end_dsp — WebRTC APM pre-codec (AGC + NS)
+# ---------------------------------------------------------------------------
+# Simulates WebRTC Audio Processing Module applied at the near-end (recording side)
+# before codec compression.  Uses webrtc-noise-gain library (shared with
+# audio_augmentation.py).
+near_end_dsp:
+  prob: 0.3
+  noise_suppression_range: [0, 3]   # 0=off, 1=Low, 2=Moderate, 3=High
+  auto_gain_range: [-3, 3]          # AGC target offset in dBFS (0=no-op)
+
+# ---------------------------------------------------------------------------
+# Stage C (CPU): codec — Hierarchical telephony codec sampler
+# ---------------------------------------------------------------------------
+# Codec is selected hierarchically: category → specific codec → parameters.
+# category_probs must sum to 1.0.
+#
+# fec_prob under VoIP/opus: marks intent for future FEC packet-loss simulation.
+# NOT consumed in the current implementation cycle — placeholder only.
+codec:
+  prob: 0.6
+  category_probs:
+    PSTN: 0.2             # G.711 narrowband (mu-law or a-law, 8 kHz)
+    Cellular: 0.3         # AMR-NB / AMR-WB (8 kHz / 16 kHz)
+    VoIP: 0.5             # Opus / G.722 (48 kHz / 16 kHz)
+  codec_tree:
+    PSTN:
+      - format: wav
+        encoder: pcm_mulaw     # ITU-T G.711 mu-law (North America / Japan)
+        sr: 8000
+      - format: wav
+        encoder: pcm_alaw      # ITU-T G.711 a-law (Europe / international)
+        sr: 8000
+    Cellular:
+      - format: amr
+        encoder: libopencore_amrnb    # AMR-NB (3GPP TS 26.071)
+        sr: 8000
+        bitrate_modes_kbps: [4.75, 5.15, 5.90, 6.70, 7.40, 7.95, 10.2, 12.2]
+      - format: amr
+        encoder: libvo_amrwbenc       # AMR-WB (3GPP TS 26.171 / G.722.2)
+        sr: 16000
+        bitrate_modes_kbps: [6.60, 8.85, 12.65, 14.25, 15.85, 18.25, 19.85, 23.05, 23.85]
+    VoIP:
+      - format: opus
+        encoder: libopus              # Opus (RFC 6716)
+        sr: 48000
+        bitrate_range_kbps: [12, 64]
+        fec_prob: 0.3                 # PLACEHOLDER — FEC simulation not yet implemented
+                                      # (deferred to next cycle; value stored but ignored)
+      - format: g722
+        encoder: g722                 # ITU-T G.722 wideband (sub-band ADPCM)
+        sr: 16000
+        bitrate_range_kbps: [48, 64]
+
+# ---------------------------------------------------------------------------
+# Stage D+E (CPU): packet_loss_plc — Gilbert-Elliott loss + PLC
+# ---------------------------------------------------------------------------
+# 2-way PLC strategy (Decision 4):
+#   Research baseline (App I): A-type and B-type PLC each weighted 0.5.
+#   Adjusted to plc_weights: [0.7, 0.3] based on perceptual quality evaluation
+#   in Appendix I — A-type (repeat-last-good-frame) produced fewer audible
+#   artifacts on narrowband content; B-type (zero-fill) preferred for wideband
+#   transients.  0.7/0.3 split balances both regimes across codec categories.
+packet_loss_plc:
+  prob: 0.4
+  frame_size_ms: 20                       # RTP/VoIP standard frame duration
+  p_good_to_bad_range: [0.02, 0.10]       # Gilbert-Elliott: prob of entering loss burst
+  p_bad_to_good_range: [0.3, 0.8]         # Gilbert-Elliott: prob of recovering from loss
+  plc_weights: [0.7, 0.3]                 # [A-type (repeat), B-type (zero-fill)]
+                                           # Decision 4: adjusted from research baseline 0.5/0.5
+
+# ---------------------------------------------------------------------------
+# Stage F (CPU): far_end_dsp — post-codec noise suppression cascade
+# ---------------------------------------------------------------------------
+# Simulates receiver-side DSP (e.g., phone earpiece processing, AGC on receive path).
+# backend_weights: [webrtc_prob, rnnoise_prob, none_prob] — must sum to 1.0.
+far_end_dsp:
+  prob: 0.3
+  backend_weights: [0.5, 0.3, 0.2]   # [webrtc, rnnoise, none]
+
+# ---------------------------------------------------------------------------
+# Stage G (CPU): bandwidth_switch — NB / WB / FB resample
+# ---------------------------------------------------------------------------
+# Simulates bandwidth limitation of transmission channel (narrowband telephony,
+# wideband VoIP, fullband web app) by downsampling and upsampling back to
+# sample_rate.
+# target_modes: NB=narrowband (8 kHz), WB=wideband (16 kHz), FB=fullband (48 kHz).
+bandwidth_switch:
+  prob: 0.3
+  target_modes: [NB, WB, FB]
+  target_weights: [0.3, 0.5, 0.2]    # [NB, WB, FB] — must match target_modes length
+
+# ---------------------------------------------------------------------------
+# Stage I (CPU): mic_capture_cpu — near-end microphone / capture artifacts
+# ---------------------------------------------------------------------------
+# CPU-side clipping and gain artifacts at the microphone capture stage.
+# clip_prob applies independently of mic_capture_cpu.prob.
+mic_capture_cpu:
+  prob: 0.3
+  clip_prob: 0.3                          # conditional clip probability (given stage fires)
+  clip_threshold_range: [0.7, 0.95]       # peak amplitude threshold for hard clipping
+  gain_db_range: [-6, 6]                  # pre-clip gain jitter (dB)
+
+# ---------------------------------------------------------------------------
+# final_normalize — always applied regardless of stage probs
+# ---------------------------------------------------------------------------
+final_normalize:
+  enabled: true
+  target_peak: 0.95       # peak amplitude target after all augmentations
+
+# ---------------------------------------------------------------------------
+# distortion_logging — opt-in stage parameter logging (Step 6.2)
+# ---------------------------------------------------------------------------
+# When enabled, every applied stage logs its sampled parameters to a CSV.
+# Thread-safe append (threading.Lock) — safe for num_workers > 1 DataLoader.
+# WandB hook available when DistortionLogger receives a wandb_run handle.
+distortion_logging:
+  enabled: false
+  csv_path: null          # path to output CSV (null = logging disabled)

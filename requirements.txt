@@ -1,0 +1,6 @@
+# Core dependencies (required)
+numpy>=1.21
+scipy>=1.7
+soundfile>=0.10
+pyyaml>=5.1
+torchaudio>=2.1
